@@ -25,10 +25,10 @@ import io.indexr.util.JsonUtil;
 
 /**
  * DPSegment is a segment which only resides on local disk. It is column based, supports rows literal, ingestion, and merge.
- * <p/>
+ * 
  * Usually DPSegment is used as an intermediate format. You can create a new one, ingest rows into it, merge with another segments,
  * maybe check correctness by literal over it. After you done play with it, transform into {@link IntegratedSegment}.
- * <p/>
+ * 
  * Dir structure:
  * <pre>
  * .../segment/path/
@@ -42,10 +42,10 @@ import io.indexr.util.JsonUtil;
  *                  colName1.index
  *                  ...
  * </pre>
- * <p/>
+ * 
  * An updating DPSegment can not be quried, i.e. those methods like {@link #rowTraversal()},
  * {@link #column(int)} will return <code>null</code> while {@link #isUpdate()} return <code>true</code>.
- * <p/>
+ * 
  * This class is <b>NOT</b> multi-thread safe.
  */
 public class DPSegment extends StorageSegment<DPColumn> {
@@ -55,7 +55,7 @@ public class DPSegment extends StorageSegment<DPColumn> {
     private boolean update;
 
     DPSegment(int version, Path segmentPath, String name, SegmentSchema schema, long rowCount) throws IOException {
-        super(version, name, schema, rowCount, (ci, sc, rc) -> new DPColumn(version, ci, sc.name, sc.dataType, rc, segmentPath));
+        super(version, name, schema, rowCount, (ci, sc, rc) -> new DPColumn(version, ci, sc.name, sc.sqlType, rc, segmentPath));
         this.segmentPath = segmentPath;
     }
 
@@ -96,7 +96,7 @@ public class DPSegment extends StorageSegment<DPColumn> {
 
     /**
      * Open a DPSegment.
-     * <p/>
+     * 
      * The newly open segment is default in compressed state, and cannot be updated.
      * You can Use {@link #setCompress(boolean)} to set compress status of next pack and {@link #update()} to enable update.
      *
@@ -203,7 +203,7 @@ public class DPSegment extends StorageSegment<DPColumn> {
 
         for (int colId = 0; colId < columns.size(); colId++) {
             DPColumn column = columns.get(colId);
-            switch (segmentSchema.columns.get(colId).dataType) {
+            switch (segmentSchema.columns.get(colId).getDataType()) {
                 case ColumnType.INT:
                     column.add(row.getInt(colId));
                     break;

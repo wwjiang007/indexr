@@ -51,7 +51,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import io.indexr.io.ByteBufferReader;
-import io.indexr.segment.ColumnType;
+import io.indexr.segment.SQLType;
 import io.indexr.segment.pack.IntegratedSegment;
 import io.indexr.segment.pack.StorageSegment;
 import io.indexr.segment.pack.UpdateColSchema;
@@ -207,6 +207,10 @@ public class UpdateColumnJob extends Configured implements Tool {
 
                     DistributedFileSystem fileSystem = (DistributedFileSystem) FileSystem.get(jobContext.getConfiguration());
                     Path tmpSegDir = new Path(jobContext.getWorkingDirectory(), TMP_SEG_DIR);
+                    if (!fileSystem.exists(tmpSegDir)) {
+                        log.warn("Segment tmp dir not found");
+                        return;
+                    }
                     try {
                         tmpSegDir = fileSystem.resolvePath(tmpSegDir);
                         String tmpSegDirStr = tmpSegDir.toString() + "/";
@@ -393,6 +397,8 @@ public class UpdateColumnJob extends Configured implements Tool {
         }
         String columns = options.columns.trim();
 
+        System.out.println("-col " + columns);
+
         String mode;
         List<UpdateColSchema> updateColSchemas;
         if (options.add) {
@@ -408,7 +414,7 @@ public class UpdateColumnJob extends Configured implements Tool {
             } catch (JsonProcessingException e) {
                 // this schema is not specified by json.
                 String[] strs = columns.split(",");
-                updateColSchemas = Lists.transform(Arrays.asList(strs), s -> new UpdateColSchema(s, ColumnType.STRING)); // type is not used.
+                updateColSchemas = Lists.transform(Arrays.asList(strs), s -> new UpdateColSchema(s, SQLType.VARCHAR, s)); // type is not used.
             }
         } else {
             System.out.println("please specify update mode -[add|del|alt]");

@@ -1,16 +1,20 @@
 package io.indexr.segment.pack;
 
+import com.google.common.base.Preconditions;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import io.indexr.segment.ColumnType;
+import org.apache.directory.api.util.Strings;
+
+import io.indexr.segment.SQLType;
 
 public class UpdateColSchema {
     @JsonProperty("name")
     public final String name;
     @JsonIgnore
-    public final byte dataType;
+    public final SQLType sqlType;
     @JsonProperty("dataType")
     public final String dataTypeName;
     @JsonProperty("value")
@@ -21,18 +25,15 @@ public class UpdateColSchema {
                            @JsonProperty("dataType") String dataTypeName,
                            @JsonProperty("value") String value) {
 
-        this(name, ColumnType.fromName(dataTypeName), value);
+        this(name, SQLType.fromName(dataTypeName), value);
     }
 
-    public UpdateColSchema(String name, byte dataType, String value) {
+    public UpdateColSchema(String name, SQLType sqlType, String value) {
+        Preconditions.checkArgument(!Strings.isEmpty(value));
+
         this.name = name;
-        this.dataType = dataType;
-        this.dataTypeName = ColumnType.toName(dataType);
-        this.value = value == null ? name : value;
-    }
-
-    public UpdateColSchema(String name,
-                           byte dataType) {
-        this(name, dataType, null);
+        this.sqlType = sqlType;
+        this.dataTypeName = sqlType.toString();
+        this.value = value;
     }
 }
