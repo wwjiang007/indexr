@@ -7,7 +7,6 @@ import org.apache.spark.unsafe.types.UTF8String;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +15,7 @@ import java.util.stream.Collectors;
 import io.indexr.segment.InfoSegment;
 import io.indexr.segment.RSValue;
 import io.indexr.segment.Segment;
-import io.indexr.segment.pack.DataPack;
+import io.indexr.util.BitMap;
 
 public class Or implements LogicalOperator {
     @JsonProperty("children")
@@ -224,28 +223,17 @@ public class Or implements LogicalOperator {
     }
 
     @Override
-    public byte roughCheckOnRow(DataPack[] rowPacks) {
-        boolean hasSome = false;
+    public BitMap exactCheckOnRow(Segment segment, int packId) throws IOException {
+        BitMap res = null;
         for (RCOperator op : children) {
-            byte v = op.roughCheckOnRow(rowPacks);
-            if (v == RSValue.All) {
-                return RSValue.All;
-            } else if (v == RSValue.Some) {
-                hasSome = true;
-            }
-        }
-        return hasSome ? RSValue.Some : RSValue.None;
-    }
-
-    @Override
-    public BitSet exactCheckOnRow(DataPack[] rowPacks) {
-        BitSet res = null;
-        for (RCOperator op : children) {
-            BitSet bitSet = op.exactCheckOnRow(rowPacks);
+            BitMap bitSet = op.exactCheckOnRow(segment, packId);
             if (res == null) {
                 res = bitSet;
             } else {
-                res.or(bitSet);
+                res = BitMap.or_free(res, bitSet);
+            }
+            if (res == BitMap.ALL || res == BitMap.SOME) {
+                return res;
             }
         }
         return res;

@@ -37,20 +37,30 @@ import io.indexr.segment.Row;
 import io.indexr.segment.RowTraversal;
 import io.indexr.segment.SQLType;
 import io.indexr.segment.Segment;
+import io.indexr.segment.SegmentMode;
 import io.indexr.segment.SegmentSchema;
+import io.indexr.segment.cache.IndexExpiredMemCache;
+import io.indexr.segment.cache.IndexMemCache;
+import io.indexr.segment.cache.PackExpiredMemCache;
+import io.indexr.segment.cache.PackMemCache;
+import io.indexr.segment.storage.DPSegment;
+import io.indexr.segment.storage.itg.IntegratedSegment;
+import io.indexr.segment.storage.OpenOption;
+import io.indexr.segment.storage.StorageSegment;
+import io.indexr.segment.storage.Version;
 import io.indexr.util.MemoryUtil;
 
 public class SegmentBenchmark {
 
     private static List<ColumnSchema> columnSchemas = Arrays.asList(
-            new ColumnSchema("c0", SQLType.INT),
-            new ColumnSchema("c1", SQLType.BIGINT),
-            new ColumnSchema("c2", SQLType.FLOAT),
-            new ColumnSchema("c3", SQLType.DOUBLE),
-            new ColumnSchema("c4", SQLType.VARCHAR),
-            new ColumnSchema("c5", SQLType.DATE),
-            new ColumnSchema("c6", SQLType.TIME),
-            new ColumnSchema("c5", SQLType.DATETIME)
+            new ColumnSchema("c0", SQLType.INT, false),
+            new ColumnSchema("c1", SQLType.BIGINT, false),
+            new ColumnSchema("c2", SQLType.FLOAT, false),
+            new ColumnSchema("c3", SQLType.DOUBLE, false),
+            new ColumnSchema("c4", SQLType.VARCHAR, false),
+            new ColumnSchema("c5", SQLType.DATE, false),
+            new ColumnSchema("c6", SQLType.TIME, false),
+            new ColumnSchema("c5", SQLType.DATETIME, false)
     );
     private static SegmentSchema segmentSchema = new SegmentSchema(columnSchemas);
 
@@ -169,7 +179,7 @@ public class SegmentBenchmark {
         public void setup() throws IOException {
             workDir = Files.createTempDirectory("dpsegment_bm_");
             String segmentId = "test_segment";
-            segment = DPSegment.open(workDir.toString(), segmentId, segmentSchema, OpenOption.Overwrite).setCompress(compress).update();
+            segment = DPSegment.open(Version.LATEST_ID, SegmentMode.DEFAULT, workDir, segmentId, segmentSchema, OpenOption.Overwrite).update();
         }
 
         @TearDown(Level.Invocation)
@@ -208,7 +218,7 @@ public class SegmentBenchmark {
             System.out.println(workDir);
             String segmentId = "test_segment";
 
-            DPSegment insertSegment = DPSegment.open(version, workDir, segmentId, segmentSchema, OpenOption.Overwrite).setCompress(compress).update();
+            DPSegment insertSegment = DPSegment.open(Version.LATEST_ID, SegmentMode.DEFAULT, workDir, segmentId, segmentSchema, OpenOption.Overwrite).update();
             addRows(insertSegment, genRows(rowCount));
             insertSegment.seal();
 
@@ -259,7 +269,7 @@ public class SegmentBenchmark {
         @Benchmark
         public void travel_by_pack() throws IOException {
             IntegratedSegment.Fd fd = IntegratedSegment.Fd.create("aa", workDir.resolve("integreated"));
-            IntegratedSegment segment = fd.open();
+            IntegratedSegment segment = (IntegratedSegment) fd.open();
             SegmentBenchmark.travel_by_pack(segment);
         }
     }
@@ -284,7 +294,7 @@ public class SegmentBenchmark {
         private PackMemCache packMemCache;
 
         DPSegment getSegment(String path) throws IOException {
-            return DPSegment.open(path, null, null);
+            return DPSegment.open(path);
         }
 
         @Setup(Level.Trial)
@@ -295,7 +305,7 @@ public class SegmentBenchmark {
             workDir = Files.createTempDirectory("dpsegment_bm_");
             String segmentId = "test_segment";
 
-            DPSegment insertSegment = DPSegment.open(version, workDir, segmentId, segmentSchema, OpenOption.Overwrite).update();
+            DPSegment insertSegment = DPSegment.open(Version.LATEST_ID, SegmentMode.DEFAULT, workDir, segmentId, segmentSchema, OpenOption.Overwrite).update();
             addRows(insertSegment, genRows(rowCount));
             insertSegment.seal();
 
@@ -305,7 +315,7 @@ public class SegmentBenchmark {
                     false);
 
             IntegratedSegment.Fd fd = IntegratedSegment.Fd.create("aa", workDir.resolve("integreated"));
-            segment = fd.open(indexMemCache, packMemCache);
+            segment = (IntegratedSegment) fd.open(indexMemCache, null, packMemCache);
 
             // warm up.
             travel_stream_forEach();
@@ -358,10 +368,12 @@ public class SegmentBenchmark {
                     for (int packId = 0; packId < packCount; packId++) {
                         DataPack pack = (DataPack) column.pack(packId);
                         if (version == Version.VERSION_0_ID) {
-                            int objCount = pack.count();
-                            pack.foreach(0, objCount, (int i, int v) -> {num.l += v;});
+                            int objCount = pack.valueCount();
+                            pack.foreach(0, objCount, (int i, int v) -> {
+                                num.l += v;
+                            });
                         } else {
-                            MemoryUtil.copyMemory(pack.dataAddr, buffer.address(), (int) pack.size());
+                            MemoryUtil.copyMemory(pack.dataAddr(), buffer.address(), (int) pack.data().size());
                         }
                     }
                     break;
@@ -369,10 +381,12 @@ public class SegmentBenchmark {
                     for (int packId = 0; packId < packCount; packId++) {
                         DataPack pack = (DataPack) column.pack(packId);
                         if (version == Version.VERSION_0_ID) {
-                            int objCount = pack.count();
-                            pack.foreach(0, objCount, (int i, long v) -> {num.l += v;});
+                            int objCount = pack.valueCount();
+                            pack.foreach(0, objCount, (int i, long v) -> {
+                                num.l += v;
+                            });
                         } else {
-                            MemoryUtil.copyMemory(pack.dataAddr, buffer.address(), (int) pack.size());
+                            MemoryUtil.copyMemory(pack.dataAddr(), buffer.address(), (int) pack.data().size());
                         }
                     }
                     break;
@@ -380,10 +394,12 @@ public class SegmentBenchmark {
                     for (int packId = 0; packId < packCount; packId++) {
                         DataPack pack = (DataPack) column.pack(packId);
                         if (version == Version.VERSION_0_ID) {
-                            int objCount = pack.count();
-                            pack.foreach(0, objCount, (int i, float v) -> {num.d += v;});
+                            int objCount = pack.valueCount();
+                            pack.foreach(0, objCount, (int i, float v) -> {
+                                num.d += v;
+                            });
                         } else {
-                            MemoryUtil.copyMemory(pack.dataAddr, buffer.address(), (int) pack.size());
+                            MemoryUtil.copyMemory(pack.dataAddr(), buffer.address(), (int) pack.data().size());
                         }
                     }
                     break;
@@ -391,18 +407,21 @@ public class SegmentBenchmark {
                     for (int packId = 0; packId < packCount; packId++) {
                         DataPack pack = (DataPack) column.pack(packId);
                         if (version == Version.VERSION_0_ID) {
-                            int objCount = pack.count();
-                            pack.foreach(0, objCount, (int i, double v) -> {num.d += v;});
+                            int objCount = pack.valueCount();
+                            pack.foreach(0, objCount, (int i, double v) -> {
+                                num.d += v;
+                            });
                         } else {
-                            MemoryUtil.copyMemory(pack.dataAddr, buffer.address(), (int) pack.size());
+                            MemoryUtil.copyMemory(pack.dataAddr(), buffer.address(), (int) pack.data().size());
                         }
                     }
                     break;
                 case ColumnType.STRING:
                     for (int packId = 0; packId < packCount; packId++) {
                         DPValues pack = column.pack(packId);
-                        int objCount = pack.count();
-                        pack.foreach(0, objCount, (int i, BytePiece bytes) -> {});
+                        int objCount = pack.valueCount();
+                        pack.foreach(0, objCount, (int i, BytePiece bytes) -> {
+                        });
                     }
                     break;
                 default:

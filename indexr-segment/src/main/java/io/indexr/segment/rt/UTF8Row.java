@@ -3,12 +3,13 @@ package io.indexr.segment.rt;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.directory.api.util.Strings;
 import org.apache.spark.unsafe.Platform;
 import org.apache.spark.unsafe.array.ByteArrayMethods;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import sun.misc.VM;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -24,8 +25,10 @@ import io.indexr.segment.ColumnType;
 import io.indexr.segment.Row;
 import io.indexr.segment.SQLType;
 import io.indexr.util.ByteArrayWrapper;
+import io.indexr.util.BytesUtil;
 import io.indexr.util.MemoryUtil;
 import io.indexr.util.Serializable;
+import io.indexr.util.Strings;
 import io.indexr.util.Trick;
 import io.indexr.util.UTF8JsonDeserializer;
 import io.indexr.util.UTF8Util;
@@ -129,7 +132,7 @@ public class UTF8Row implements Row, Serializable {
                        List<Metric> metrics,
                        Map<String, String> nameToAlias,
                        TagSetting tagSetting,
-                       int ignoreStrategy) {
+                       EventIgnoreStrategy ignoreStrategy) {
             Trick.notRepeated(columnSchemas, ColumnSchema::getName);
             Trick.notRepeated(dims, d -> d);
             Trick.notRepeated(metrics, m -> m.name);
@@ -137,7 +140,7 @@ public class UTF8Row implements Row, Serializable {
                 Trick.notRepeated(Trick.concatToList(dims, Lists.transform(metrics, m -> m.name)), s -> s);
             }
 
-            this.ignoreStrategy = ignoreStrategy;
+            this.ignoreStrategy = ignoreStrategy.id;
 
             this.originalSchema = columnSchemas;
             this.columnCount = columnSchemas.size();
@@ -289,7 +292,7 @@ public class UTF8Row implements Row, Serializable {
                 return null;
             }
             switch (ignoreStrategy) {
-                case EventIgnoreStrategy.IGNORE_EMPTY:
+                case EventIgnoreStrategy.ID_IGNORE_EMPTY:
                     if (isEmpty()) {
                         return null;
                     }
@@ -319,7 +322,25 @@ public class UTF8Row implements Row, Serializable {
             // Use off-heap memory to store row data.
             // We don't want those rows stored in JVM headp as they can put too much pressure on GC.
             // Besides those rows' lifecycle can be easily managed.
-            long rowDataAddr = MemoryUtil.allocate(totalRowSize);
+
+            // Copied from java.nio.DirectByteBuffer
+
+            long rowDataMemoryBase;
+            long rowDataAddr;
+
+            boolean pa = VM.isDirectMemoryPageAligned();
+            int ps = MemoryUtil.pageSize();
+            long size = Math.max(1L, (long) totalRowSize + (pa ? ps : 0));
+            rowDataMemoryBase = MemoryUtil.allocate(size);
+            MemoryUtil.setMemory(rowDataMemoryBase, size, (byte) 0);
+
+            if (pa && (rowDataMemoryBase % ps != 0)) {
+                // Round up to page boundary
+                rowDataAddr = rowDataMemoryBase + ps - (rowDataMemoryBase & (ps - 1));
+            } else {
+                rowDataAddr = rowDataMemoryBase;
+            }
+
             if (hasDims) {
                 // Put dims values and raw values together, convient for equal check.
                 int dimValueSize = dimCount << 3;
@@ -370,7 +391,7 @@ public class UTF8Row implements Row, Serializable {
                 }
 
                 long code = grouping ? 0 : nextRowId++;
-                return new UTF8Row(code, this, rowDataAddr, totalRowSize, dimDataSize);
+                return new UTF8Row(code, this, rowDataMemoryBase, rowDataAddr, totalRowSize, dimDataSize);
             } else {
                 int valueSize = columnCount << 3;
                 Platform.copyMemory(valuesBuffer, LONG_ARRAY_OFFSET, null, rowDataAddr, valueSize);
@@ -394,7 +415,7 @@ public class UTF8Row implements Row, Serializable {
                     }
                 }
 
-                return new UTF8Row(nextRowId++, this, rowDataAddr, totalRowSize, 0);
+                return new UTF8Row(nextRowId++, this, rowDataMemoryBase, rowDataAddr, totalRowSize, 0);
             }
         }
 
@@ -528,10 +549,14 @@ public class UTF8Row implements Row, Serializable {
         }
 
         public boolean onStringValue(long addr, int size) {
+            return onStringValue(null, addr, size);
+        }
+
+        public boolean onStringValue(Object base, long offset, int size) {
             if (curRowIsTagField) {
                 boolean ok = false;
                 for (byte[] tag : acceptTags) {
-                    if (UTF8Util.containsCommaSep(null, addr, size, tag)) {
+                    if (UTF8Util.containsCommaSep(base, offset, size, tag)) {
                         ok = true;
                         break;
                     }
@@ -546,7 +571,7 @@ public class UTF8Row implements Row, Serializable {
             putValue(curRowIndex, (((long) rawValueOffset) << 32) | (long) size);
 
             Platform.copyMemory(
-                    null, addr,
+                    base, offset,
                     rawValuesBuffer, BYTE_ARRAY_OFFSET + rawValueOffset,
                     size);
 
@@ -645,6 +670,9 @@ public class UTF8Row implements Row, Serializable {
     }
 
     private final Creator creator;
+    // The memory where row data allocated. This value is used to free memory.
+    private long rowDataMemoryBase;
+    // The memory where row data actually begin.
     private long rowDataAddr;
     private final int rowDataSize;
     private final int dimDataSize;
@@ -653,17 +681,19 @@ public class UTF8Row implements Row, Serializable {
     // This is used to stop comparator return 0 if grouping is disable.
     private final long code;
 
-    private UTF8Row(long code, Creator creator, long rowDataAddr, int rowDataSize, int dimDataSize) {
+    private UTF8Row(long code, Creator creator, long rowDataMemoryBase, long rowDataAddr, int rowDataSize, int dimDataSize) {
         this.code = code;
         this.creator = creator;
+        this.rowDataMemoryBase = rowDataMemoryBase;
         this.rowDataAddr = rowDataAddr;
         this.rowDataSize = rowDataSize;
         this.dimDataSize = dimDataSize;
     }
 
     public void free() {
-        if (rowDataAddr != 0) {
-            MemoryUtil.free(rowDataAddr);
+        if (rowDataMemoryBase != 0) {
+            MemoryUtil.free(rowDataMemoryBase);
+            rowDataMemoryBase = 0;
             rowDataAddr = 0;
         }
     }
@@ -718,7 +748,7 @@ public class UTF8Row implements Row, Serializable {
                     int offset2 = (int) (word2 >>> 32);
                     int len2 = (int) word2 & ColumnType.MAX_STRING_UTF8_SIZE_MASK;
 
-                    res = compareBytes(rowDataAddr1 + offset1, len1, rowDataAddr2 + offset2, len2);
+                    res = BytesUtil.compareBytes(rowDataAddr1 + offset1, len1, rowDataAddr2 + offset2, len2);
                 } else {
                     res = Long.compare(word1, word2);
                 }
@@ -730,37 +760,6 @@ public class UTF8Row implements Row, Serializable {
             // If we don't do grouping we should never let it return zero.
             return Long.compare(r1.code, r2.code);
         };
-    }
-
-    private static int compareBytes(long addr1, int len1, long addr2, int len2) {
-        int len = Math.min(len1, len2);
-        int res;
-
-        long word1, word2;
-        int wordLen = len & 0xFFFF_FFF8;
-        for (int i = 0; i < wordLen; i += 8) {
-            word1 = MemoryUtil.getLong(addr1 + i);
-            word2 = MemoryUtil.getLong(addr2 + i);
-            res = Long.compare(word1, word2);
-            if (res != 0) {
-                return res;
-            }
-        }
-
-        if ((len & 0x07) != 0) {
-            long tail1 = 0;
-            long tail2 = 0;
-            for (int i = wordLen; i < len; i++) {
-                tail1 = (tail1 << 8) | (MemoryUtil.getByte(addr1 + i) & 0xFF);
-                tail2 = (tail2 << 8) | (MemoryUtil.getByte(addr2 + i) & 0xFF);
-            }
-            res = Long.compare(tail1, tail2);
-            if (res != 0) {
-                return res;
-            }
-        }
-
-        return len1 - len2;
     }
 
     @Override
@@ -948,5 +947,41 @@ public class UTF8Row implements Row, Serializable {
         byte[] bytes = new byte[len];
         Platform.copyMemory(null, rowDataAddr + offset, bytes, BYTE_ARRAY_OFFSET, len);
         return bytes;
+    }
+
+    // ===================================
+    // Static methods
+    // ===================================
+
+    public static UTF8Row from(Creator creator, Row row) {
+        List<ColumnSchema> csList = creator.originalSchema;
+        BytePiece bp = new BytePiece();
+        creator.startRow();
+        for (int id = 0; id < csList.size(); id++) {
+            creator.onColumnId(id);
+
+            ColumnSchema cs = csList.get(id);
+            switch (cs.getDataType()) {
+                case ColumnType.INT:
+                    creator.onIntValue(row.getInt(id));
+                    break;
+                case ColumnType.LONG:
+                    creator.onLongValue(row.getLong(id));
+                    break;
+                case ColumnType.FLOAT:
+                    creator.onFloatValue(row.getFloat(id));
+                    break;
+                case ColumnType.DOUBLE:
+                    creator.onDoubleValue(row.getDouble(id));
+                    break;
+                case ColumnType.STRING:
+                    row.getRaw(id, bp);
+                    creator.onStringValue(bp.base, bp.addr, bp.len);
+                    break;
+                default:
+                    throw new IllegalStateException("Illegal type: " + cs.getDataType());
+            }
+        }
+        return creator.endRow();
     }
 }

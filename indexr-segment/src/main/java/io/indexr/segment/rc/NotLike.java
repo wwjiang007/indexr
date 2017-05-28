@@ -6,12 +6,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.spark.unsafe.types.UTF8String;
 
 import java.io.IOException;
-import java.util.BitSet;
 
 import io.indexr.segment.InfoSegment;
 import io.indexr.segment.RSValue;
 import io.indexr.segment.Segment;
-import io.indexr.segment.pack.DataPack;
+import io.indexr.util.BitMap;
 
 public class NotLike extends Like {
     @JsonCreator
@@ -49,12 +48,7 @@ public class NotLike extends Like {
     }
 
     @Override
-    public byte roughCheckOnRow(DataPack[] rowPacks) {
-        return RSValue.not(super.roughCheckOnRow(rowPacks));
-    }
-
-    @Override
-    public BitSet exactCheckOnRow(DataPack[] rowPacks) {
-        return RCHelper.not(super.exactCheckOnRow(rowPacks));
+    public BitMap exactCheckOnRow(Segment segment, int packId) throws IOException {
+        return BitMap.not(super.exactCheckOnRow(segment, packId));
     }
 }
