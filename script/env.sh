@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # local maven repo path
-export MAVEN_PATH=`mvn help:evaluate -Dexpression=settings.localRepository | grep -v '\[INFO\]'`
-export VERSION=0.5.0
+export MAVEN_PATH=`mvn help:evaluate -Dexpression=settings.localRepository | grep -v '^\[.*$'`
+export VERSION=0.6.0
 
 # local c++ lib env
 export BOOST_INCLUDES=/usr/local/include
