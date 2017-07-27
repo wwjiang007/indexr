@@ -11,11 +11,17 @@
 * Features like realtime and offline pre-aggregation, online schema update, 100% accurate, etc.
 * Deep integration with Hadoop ecosystem. Adapted with popular query engines like Apache Drill, Apache Hive, etc.
 
-#### Document
+#### Getting started
+
+* Installation - First [Compile from source](https://github.com/shunfei/indexr/wiki/Compilation), then [Set up a cluster](https://github.com/shunfei/indexr/wiki/Deployment).
+* User manual - Check [here](https://github.com/shunfei/indexr/wiki/User-Guide).
+* Any problems? - Found an [issue](https://github.com/shunfei/indexr/issues).
+
+#### Documentation
 
 [https://github.com/shunfei/indexr/wiki](https://github.com/shunfei/indexr/wiki)
 
-#### Links
+#### Useful Links
 
 * [IndexR 技术白皮书](https://github.com/shunfei/sfmind/blob/master/indexr_white_paper/indexr_white_paper.md)
 * [IndexR introduction](https://github.com/shunfei/sfmind/blob/master/indexr.about.en.md)
@@ -27,6 +33,7 @@ Please feel free to file any issues.
 * Email: 
 	* <indexree@vectorlinetech.com>
 	* <519178957@qq.com>
+* IRC: #indexr
 * QQ Group: 606666586 (IndexR讨论组)
 
 ## License
