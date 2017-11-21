@@ -2,7 +2,7 @@
 
 ![IndexR Logo](images/indexr-logo-150x150.png)
 
-**IndexR** is a super fast columnar data formate on HDFS, which focus on fast analytic, both for massive static(historical) data and rapidly ingesting realtime data. IndexR is designed for OLAP. IndexR is greatly suitable for building data warehouse based on Hadoop ecosystem.
+**IndexR** is a super fast columnar data format on HDFS, which focus on fast analytic, both for massive static(historical) data and rapidly ingesting realtime data. IndexR is designed for OLAP. IndexR is greatly suitable for building data warehouse based on Hadoop ecosystem.
 
 * Super fast, 2~4x read speed of Parquet.
 * 3 levels indices supported. Say goodbye to full scan.
@@ -33,7 +33,6 @@ Please feel free to file any issues.
 ## Contact
 
 * Email: 
-	* <indexree@vectorlinex.com>
 	* <519178957@qq.com>
 * IRC: #indexr
 * QQ Group: 606666586 (IndexR讨论组)
